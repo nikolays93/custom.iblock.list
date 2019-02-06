@@ -171,6 +171,13 @@ class CatalogSectionComponent extends ElementList
 			$sectionIterator->SetUrlTemplates('', $this->arParams['SECTION_URL']);
 			$sectionResult = $sectionIterator->GetNext();
 		}
+        elseif ($this->arParams['ELEMENT_ID'] > 0)
+        {
+            $filterFields['ID'] = $this->arParams['ELEMENT_ID'];
+            $sectionIterator = CIBlockElement::GetList(array(), $filterFields, false, $selectFields);
+            $sectionIterator->SetUrlTemplates('', $this->arParams['ELEMENT_URL']);
+            $sectionResult = $sectionIterator->GetNext();
+        }
 		elseif (strlen($this->arParams['SECTION_CODE']) > 0)
 		{
 			$filterFields['=CODE'] = $this->arParams['SECTION_CODE'];

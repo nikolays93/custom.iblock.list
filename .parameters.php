@@ -12,6 +12,7 @@ use Bitrix\Main\Loader,
 	Bitrix\Iblock,
 	Bitrix\Catalog,
 	Bitrix\Currency;
+use Bitrix\Main\UserConsent\Internals\AgreementTable;
 
 global $USER_FIELD_MANAGER;
 
@@ -36,12 +37,61 @@ $rsIBlock = CIBlock::GetList(array('SORT' => 'ASC'), $iblockFilter);
 while ($arr = $rsIBlock->Fetch())
 {
 	$id = (int)$arr['ID'];
-	if (isset($offersIblock[$id]))
-		continue;
 	$arIBlock[$id] = '['.$id.'] '.$arr['NAME'];
 }
 unset($id, $arr, $rsIBlock, $iblockFilter);
-unset($offersIblock);
+
+$current = array();
+$current['IBLOCK_ID'] = !empty($arCurrentValues['IBLOCK_ID']) && 0 < (int)$arCurrentValues['IBLOCK_ID'] ?
+	(int)$arCurrentValues['IBLOCK_ID'] : 0;
+/**
+ * @todo set multiple?
+ */
+$current['SECTION_ID'] = !empty($arCurrentValues['SECTION_ID']) && 0 < (int)$arCurrentValues['SECTION_ID'] ?
+	(int)$arCurrentValues['SECTION_ID'] : 0;
+$current['ELEMENT_ID'] = !empty($arCurrentValues['ELEMENT_ID']) && 0 < (int)$arCurrentValues['ELEMENT_ID'] ?
+	(int)$arCurrentValues['ELEMENT_ID'] : 0;
+
+/**
+ * Get sections
+ */
+$arSections = array();
+// $arSectionsFilter = array('ACTIVE' => 'Y');
+$arFilter = array();
+if( $current['IBLOCK_ID'] ) $arFilter['IBLOCK_ID'] = $current['IBLOCK_ID'];
+
+$rsSection = CIBlockSection::GetList(
+    array("SORT" => "ASC"),
+    $arFilter,
+    false,
+    array('IBLOCK_ID', 'ID', 'NAME')
+);
+while ($arr = $rsSection->Fetch())
+{
+	$id = (int)$arr['ID'];
+	$arSections[$id] = '['.$id.'] '.$arr['NAME'];
+}
+unset($id, $arr, $rsSection);
+
+/**
+ * Get elements
+ */
+$arElements = array();
+if( $current['SECTION_ID'] ) $arFilter['SECTION_ID'] = $current['SECTION_ID'];
+
+$rsElement = CIBlockElement::GetList(
+    Array("SORT" => "ASC"),
+    $arFilter,
+    false,
+    Array('IBLOCK_ID', 'ID', 'NAME')
+);
+
+while ($arr = $rsElement->Fetch())
+{
+	$id = (int)$arr['ID'];
+	$arElements[$id] = '['.$id.'] '.$arr['NAME'];
+}
+unset($id, $arr, $rsElement);
 
 $defaultValue = array('-' => GetMessage('CP_BCS_EMPTY'));
 
@@ -166,32 +216,15 @@ $arComponentParameters = array(
 		// 	),
 		// ),
 		// 'AJAX_MODE' => array(),
-		'IBLOCK_TYPE' => array(
+		'QUERY_TYPE' => array(
 			'PARENT' => 'BASE',
-			'NAME' => GetMessage('IBLOCK_TYPE'),
+			'NAME' => 'Тип запроса',
 			'TYPE' => 'LIST',
-			'VALUES' => $arIBlockType,
+			'VALUES' => array(
+				'IBLOCK' => 'Инфоблок',
+				'AGREEMENT' => 'Соглашения',
+			),
 			'REFRESH' => 'Y',
-		),
-		'IBLOCK_ID' => array(
-			'PARENT' => 'BASE',
-			'NAME' => GetMessage('IBLOCK_IBLOCK'),
-			'TYPE' => 'LIST',
-			'ADDITIONAL_VALUES' => 'Y',
-			'VALUES' => $arIBlock,
-			'REFRESH' => 'Y',
-		),
-		'SECTION_ID' => array(
-			'PARENT' => 'BASE',
-			'NAME' => GetMessage('IBLOCK_SECTION_ID'),
-			'TYPE' => 'STRING',
-			'DEFAULT' => '={$_REQUEST["SECTION_ID"]}',
-		),
-		'SECTION_CODE' => array(
-			'PARENT' => 'BASE',
-			'NAME' => GetMessage('IBLOCK_SECTION_CODE'),
-			'TYPE' => 'STRING',
-			'DEFAULT' => '',
 		),
 		'SECTION_USER_FIELDS' => array(
 			'PARENT' => 'DATA_SOURCE',
@@ -398,17 +431,84 @@ $arComponentParameters = array(
 	),
 );
 
-if (isset($arCurrentValues['COMPATIBLE_MODE']) && $arCurrentValues['COMPATIBLE_MODE'] === 'N')
-{
-	unset($arComponentParameters['PARAMETERS']['OFFERS_LIMIT']);
+if( !$arCurrentValues['QUERY_TYPE'] || 'IBLOCK' == strtoupper($arCurrentValues['QUERY_TYPE']) ) {
+	$arComponentParameters['PARAMETERS']['IBLOCK_TYPE'] = array(
+		'PARENT' => 'BASE',
+		'NAME' => GetMessage('IBLOCK_TYPE'),
+		'TYPE' => 'LIST',
+		'VALUES' => $arIBlockType,
+		'REFRESH' => 'Y',
+	);
+
+	$arComponentParameters['PARAMETERS']['IBLOCK_ID'] = array(
+		'PARENT' => 'BASE',
+		'NAME' => GetMessage('IBLOCK_IBLOCK'),
+		'TYPE' => 'LIST',
+		'ADDITIONAL_VALUES' => 'Y',
+		'VALUES' => $arIBlock,
+		'REFRESH' => 'Y',
+	);
+
+	$arComponentParameters['PARAMETERS']['SECTION_ID'] = array(
+		'PARENT' => 'BASE',
+		'NAME' => 'Раздел', // GetMessage('IBLOCK_SECTION_ID')
+		'TYPE' => 'LIST',
+		'DEFAULT' => '={$_REQUEST["SECTION_ID"]}',
+		'ADDITIONAL_VALUES' => 'Y',
+		'VALUES' => $arSections,
+		'REFRESH' => 'Y',
+	);
+
+	$arComponentParameters['PARAMETERS']['ELEMENT_ID'] = array(
+		'PARENT' => 'BASE',
+		'NAME' => 'Элемент',
+		'TYPE' => 'LIST',
+		'DEFAULT' => '={$_REQUEST["ELEMENT_ID"]}',
+		'ADDITIONAL_VALUES' => 'Y',
+		'VALUES' => $arElements,
+	);
+
+	$arComponentParameters['PARAMETERS']['SECTION_CODE'] = array(
+		'PARENT' => 'BASE',
+		'NAME' => GetMessage('IBLOCK_SECTION_CODE'),
+		'TYPE' => 'STRING',
+		'DEFAULT' => '',
+	);
+}
+elseif( 'AGREEMENT' == strtoupper($arCurrentValues['QUERY_TYPE']) ) {
+	$arAgreementList = array();
+	$rsList = AgreementTable::getList(array(
+		'select' => array('ID', 'DATE_INSERT', 'ACTIVE', 'NAME', 'TYPE', 'AGREEMENT_TEXT'),
+		'filter' => array(), // $this->getDataFilter()
+		// 'offset' => $nav->getOffset(),
+		// 'limit' => $nav->getLimit(),
+		'count_total' => true,
+		'cache' => array('ttl' => 3600),
+		'order' => array(
+			'ID' => 'ASC'
+		)
+	));
+
+	foreach ($rsList as $item)
+	{
+		if( !isset($item['ID']) ) continue;
+
+		$arAgreementList[ $item['ID'] ][] = "[{$item['ID']}] {$item['NAME']}";
+	}
+
+	$arComponentParameters['PARAMETERS']['ELEMENT_ID'] = array(
+		'PARENT' => 'BASE',
+		'NAME' => 'Элемент',
+		'TYPE' => 'LIST',
+		'DEFAULT' => '={$_REQUEST["ELEMENT_ID"]}',
+		'ADDITIONAL_VALUES' => 'Y',
+		'VALUES' => $arAgreementList,
+	);
 }
 
 if ($usePropertyFeatures)
 {
 	unset($arComponentParameters['PARAMETERS']['PROPERTY_CODE']);
-	unset($arComponentParameters['PARAMETERS']['OFFERS_PROPERTY_CODE']);
-	if (isset($arComponentParameters['PARAMETERS']['PRODUCT_PROPERTIES']))
-		unset($arComponentParameters['PARAMETERS']['PRODUCT_PROPERTIES']);
 }
 
 // hack for correct sort
